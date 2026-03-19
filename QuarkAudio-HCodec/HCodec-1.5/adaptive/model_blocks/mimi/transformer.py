@@ -411,6 +411,15 @@ class StreamingMultiheadAttention(StreamingModule[_MHAState]):
                 attn_bias = attn_bias & (delta < self.context)
         else:
             attn_bias = None
+        if padding_mask is not None:
+            padding_mask = padding_mask.bool()
+            _pad_mask = padding_mask.unsqueeze(1).unsqueeze(2).expand(-1,self.num_heads, q.shape[2], -1)
+            if attn_bias is None:
+                attn_bias = _pad_mask
+            else:
+                attn_bias = attn_bias.unsqueeze(0).unsqueeze(0)
+                attn_bias = attn_bias & _pad_mask
+
         # NOTE: attn_bias is the key for the causal transformer
         x = F.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
 

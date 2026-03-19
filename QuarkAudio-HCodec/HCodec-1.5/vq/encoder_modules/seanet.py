@@ -186,7 +186,6 @@ class SEANetEncoder(nn.Module):
 
         # self.model = nn.Sequential(*model)
 
-        self.model = nn.Sequential(*model)
         self.pre_transformer = nn.Sequential(*model)
         self.transformer = Transformer(
                 hidden_size=dimension,

@@ -103,7 +103,7 @@ class HCodecTokenizer(nn.Module):
         else:
             padding_mask = None
 
-        feats = self.extract_wav2vec2_features(wav, attention_mask=wav2vec2_mask).transpose(-2, -1)
+        feats = self.extract_wav2vec2_features(wav, wav2vec2_mask=wav2vec2_mask).transpose(-2, -1)
         ret_dict = self.model.encode(wav.unsqueeze(1), feats, padding_mask=padding_mask)
         return ret_dict
     
