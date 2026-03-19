@@ -96,7 +96,7 @@ class HCodecTokenizer(nn.Module):
         if wav_lengths is not None:
             trans_ds_factor = hop_length // 2
             T_enc = wav.shape[-1] // trans_ds_factor
-            enc_valid_lens = wav_lengths // trans_ds_factor
+            enc_valid_lens = (wav_lengths + trans_ds_factor - 1) // trans_ds_factor
             padding_mask = (
                 torch.arange(T_enc, device=wav.device).unsqueeze(0) < enc_valid_lens.unsqueeze(1)
             )
