@@ -184,49 +184,35 @@ class SEANetEncoder(nn.Module):
         #             causal=causal, pad_mode=pad_mode)
         # ]
 
-        # self.model = nn.Sequential(*model)
-
-        self.pre_transformer = nn.Sequential(*model)
-        self.transformer = Transformer(
+        model += [
+            Transpose(-2, -1),
+            Transformer(
                 hidden_size=dimension,
                 intermediate_size=dimension * 4,
                 num_attention_heads=8,
                 num_hidden_layers=2,
                 use_moe=False,
                 causal=causal,
-            )
-        self.post_transformer = nn.Sequential(
+            ),
+            Transpose(-2, -1),
             act(**activation_params),
             SConv1d(dimension, dimension,
                     kernel_size=2 * 2, stride=2,
                     norm=norm, norm_kwargs=norm_params,
                     causal=causal, pad_mode=pad_mode),
-        )
+        ]
+        self.model = nn.Sequential(*model)
 
-        # self.use_transformer = use_transformer
-        # if use_transformer:
-        #     self.transformer_enocoder = Transformer(
-        #         hidden_size=dimension,
-        #         intermediate_size=dimension * 4,
-        #         num_attention_heads=8,
-        #         num_hidden_layers=2,
-        #         use_moe=False,
-        #         causal=causal,
-        #     )
-        #     self.out = nn.Sequential(
-        #         act(**activation_params),
-        #         SConv1d(dimension, dimension, last_kernel_size, norm=norm, norm_kwargs=norm_params,
-        #                 causal=causal, pad_mode=pad_mode),
-        #     )
-
-
-    def forward(self, x, padding_mask = None):
-        # x = self.model(x)
-        x = self.pre_transformer(x)
-        x = x.transpose(-2,-1)
-        x = self.transformer(x, padding_mask=padding_mask)
-        x = x.transpose(-2,-1)
-        x = self.post_transformer(x)
+    def forward(self, x, padding_mask=None):
+        for layer in self.model:
+            if isinstance(layer, Transformer):
+                # x is (B, T, D) here — transposed by the preceding Transpose layer
+                x = layer(x, padding_mask=padding_mask)
+                if padding_mask is not None:
+                    # Zero out padding positions before the final stride-2 conv
+                    x = x * padding_mask.unsqueeze(-1).type_as(x)
+            else:
+                x = layer(x)
         return x
 
 
