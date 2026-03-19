@@ -374,7 +374,7 @@ class StreamingMultiheadAttention(StreamingModule[_MHAState]):
         else:
             return state.kv_cache.complete(k, v)
 
-    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor):
+    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, padding_mask: torch.Tensor = None):
         state = self._streaming_state
         T = query.shape[1]
 
@@ -574,19 +574,19 @@ class StreamingTransformerLayer(StreamingModule[_LayerState]):
                 update = self.gating(x)
         return x_orig + self.layer_scale_2(update)
 
-    def _sa_block(self, x: torch.Tensor):
+    def _sa_block(self, x: torch.Tensor, padding_mask: torch.Tensor = None):
         if self.skip_self_attn:
             return x
         x_orig = x
         x = self.norm1(x)
-        update = self.self_attn(x, x, x)
+        update = self.self_attn(x, x, x, padding_mask=padding_mask)
         return x_orig + self.layer_scale_1(update)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, padding_mask: torch.Tensor = None):
         with ExitStack() as stack:
             if x.device.type != 'cuda':
                 stack.enter_context(no_compile())
-            x = self._sa_block(x)
+            x = self._sa_block(x, padding_mask=padding_mask)
             x = self._ff_block(x)
             state = self._streaming_state
             if state:
@@ -673,7 +673,7 @@ class StreamingTransformer(StreamingModule[_TransformerState]):
         device = next(self.parameters()).device
         return _TransformerState(offset=torch.zeros(1, device=device, dtype=torch.long))
 
-    def forward(self, x: torch.Tensor, *args, **kwargs):
+    def forward(self, x: torch.Tensor, padding_mask=None, *args, **kwargs):
         B, T, C = x.shape
 
         state = self._streaming_state
@@ -691,7 +691,7 @@ class StreamingTransformer(StreamingModule[_TransformerState]):
             x = x + self.positional_scale * pos_emb
 
         for layer in self.layers:
-            x = layer(x, *args, **kwargs)
+            x = layer(x, padding_mask=padding_mask, *args, **kwargs)
 
         if state is not None:
             state.offset.add_(T)
@@ -864,12 +864,12 @@ class ProjectedTransformer(StreamingContainer):
                     nn.Linear(d_model, output_dimension, bias=False)
                 )
 
-    def forward(self, x, *args, **kwargs):
+    def forward(self, x, padding_mask=None, *args, **kwargs):
         if self.conv_layout:
             x = x.transpose(1, 2)
         if self.input_proj is not None:
             x = self.input_proj(x)
-        z = self.transformer(x, *args, **kwargs)
+        z = self.transformer(x, padding_mask=padding_mask, *args, **kwargs)
         ys = []
         for output_proj in self.output_projs:
             y = output_proj(z)

@@ -50,12 +50,15 @@ class HCodecTokenizer(nn.Module):
         self.hop_length = 640  # 25hz
     
     @torch.no_grad()
-    def extract_wav2vec2_features(self, wavs: torch.Tensor) -> torch.Tensor:
+    def extract_wav2vec2_features(self, wavs: torch.Tensor, wav2vec2_mask: torch.Tensor = None) -> torch.Tensor:
         """extract wav2vec2 features"""
         # wavs: (b,t)
         wavs = F.pad(wavs, (160, 160))
         
-        feat = self.feature_extractor(wavs, output_hidden_states=True)
+        if wav2vec2_mask is not None:
+            wav2vec2_mask = F.pad(wav2vec2_mask, (160, 160), value=0)
+
+        feat = self.feature_extractor(wavs,attention_mask=wav2vec2_mask, output_hidden_states=True)
         feats_mix = (
             feat.hidden_states[11] + feat.hidden_states[14] + feat.hidden_states[16]
         ) / 3
@@ -73,12 +76,41 @@ class HCodecTokenizer(nn.Module):
         return wav
 
     @torch.no_grad()
-    def tokenize(self, wav: torch.Tensor):
+    def tokenize(self, wav: torch.Tensor, wav_lengths: torch.Tensor = None):
         # wav: (b,t)
-        wav = self.pad_wav(wav)
-        feats = self.extract_wav2vec2_features(wav).transpose(-2, -1)  # (b,d,t)
-        ret_dict = self.model.encode(wav.unsqueeze(1), feats) # (b,nq,t)
+        if wav_lengths is not None:
+            wav2vec2_mask = (
+                torch.arange(wav.shape[1], device=wav.device).unsqueeze(0) < wav_lengths.unsqueeze(1)
+            ).long()
+        else:
+            wav2vec2_mask = None
+        
+        hop_length = math.prod(self.config['encoder_config']['ratios']) * 2
+        pad_length = math.ceil(wav.size(-1) / hop_length) * hop_length - wav.size(-1)
+        wav = torch.nn.functional.pad(wav, (0, pad_length))
+        
+        if wav2vec2_mask is not None:
+            wav2vec2_mask = torch.nn.functional.pad(wav2vec2_mask, (0, pad_length), value=0)
+
+        
+        if wav_lengths is not None:
+            trans_ds_factor = hop_length // 2
+            T_enc = wav.shape[-1] // trans_ds_factor
+            enc_valid_lens = wav_lengths // trans_ds_factor
+            padding_mask = (
+                torch.arange(T_enc, device=wav.device).unsqueeze(0) < enc_valid_lens.unsqueeze(1)
+            )
+        else:
+            padding_mask = None
+
+        feats = self.extract_wav2vec2_features(wav, attention_mask=wav2vec2_mask).transpose(-2, -1)
+        ret_dict = self.model.encode(wav.unsqueeze(1), feats, padding_mask=padding_mask)
         return ret_dict
+    
+        # wav = self.pad_wav(wav)
+        # feats = self.extract_wav2vec2_features(wav).transpose(-2, -1)  # (b,d,t)
+        # ret_dict = self.model.encode(wav.unsqueeze(1), feats) # (b,nq,t)
+        # return ret_dict
 
     @torch.no_grad()
     def detokenize(self, acoustic_codes: torch.Tensor, semantic_codes: torch.Tensor, token_lengths=None):

@@ -160,23 +160,23 @@ class SEANetEncoder(nn.Module):
         #         Transpose(-2, -1),
         #     ]
 
-        model += [
-            Transpose(-2, -1),
-            Transformer(
-                hidden_size=dimension,
-                intermediate_size=dimension * 4,
-                num_attention_heads=8,
-                num_hidden_layers=2,
-                use_moe=False,
-                causal=causal,
-            ),
-            Transpose(-2, -1),
-            act(**activation_params),
-            SConv1d(dimension, dimension,
-                    kernel_size=2 * 2, stride=2,
-                    norm=norm, norm_kwargs=norm_params,
-                    causal=causal, pad_mode=pad_mode),
-        ]
+        # model += [
+        #     Transpose(-2, -1),
+        #     Transformer(
+        #         hidden_size=dimension,
+        #         intermediate_size=dimension * 4,
+        #         num_attention_heads=8,
+        #         num_hidden_layers=2,
+        #         use_moe=False,
+        #         causal=causal,
+        #     ),
+        #     Transpose(-2, -1),
+        #     act(**activation_params),
+        #     SConv1d(dimension, dimension,
+        #             kernel_size=2 * 2, stride=2,
+        #             norm=norm, norm_kwargs=norm_params,
+        #             causal=causal, pad_mode=pad_mode),
+        # ]
 
         # model += [
         #     act(**activation_params),
@@ -184,7 +184,25 @@ class SEANetEncoder(nn.Module):
         #             causal=causal, pad_mode=pad_mode)
         # ]
 
+        # self.model = nn.Sequential(*model)
+
         self.model = nn.Sequential(*model)
+        self.pre_transformer = nn.Sequential(*model)
+        self.transformer = Transformer(
+                hidden_size=dimension,
+                intermediate_size=dimension * 4,
+                num_attention_heads=8,
+                num_hidden_layers=2,
+                use_moe=False,
+                causal=causal,
+            )
+        self.post_transformer = nn.Sequential(
+            act(**activation_params),
+            SConv1d(dimension, dimension,
+                    kernel_size=2 * 2, stride=2,
+                    norm=norm, norm_kwargs=norm_params,
+                    causal=causal, pad_mode=pad_mode),
+        )
 
         # self.use_transformer = use_transformer
         # if use_transformer:
@@ -203,8 +221,13 @@ class SEANetEncoder(nn.Module):
         #     )
 
 
-    def forward(self, x):
-        x = self.model(x)
+    def forward(self, x, padding_mask = None):
+        # x = self.model(x)
+        x = self.pre_transformer(x)
+        x = x.transpose(-2,-1)
+        x = self.transformer(x, padding_mask=padding_mask)
+        x = x.transpose(-2,-1)
+        x = self.post_transformer(x)
         return x
 
 

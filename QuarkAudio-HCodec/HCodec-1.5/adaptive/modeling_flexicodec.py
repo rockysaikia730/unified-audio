@@ -29,6 +29,7 @@ def _extract_semantic_code(
     sensevoice_prepend_inputs= True,
     sim_layer_idx=None,
     semantic_layer_idx=None,
+    audio_features_lengths=None,
 ):
     """Return `(semantic_repr, sim_repr)` in (B, T, C) format.
 
@@ -54,7 +55,8 @@ def _extract_semantic_code(
     elif hasattr(semantic_model, 'encoder'):
         # For FunASR model, we need to pass audio_features_lengths
         # Create dummy lengths based on attention_mask or input_features shape
-        audio_features_lengths = torch.tensor([input_features.shape[1]] * input_features.shape[0], 
+        if audio_features_lengths is None:
+            audio_features_lengths = torch.tensor([input_features.shape[1]] * input_features.shape[0], 
                                             device=input_features.device, dtype=torch.long)
         
         # Check if we need to prepend inputs (similar to SenseVoiceAudioEncoder.forward_encoder)
@@ -529,6 +531,14 @@ class FlexiCodec(nn.Module):
         mel_mask = dl_output.get("mel_mask", None)  # Optional mask for flow matching
         manual_threshold = dl_output.get("manual_threshold", None)  # Optional mask for flow matching
         audio_features_masks = torch.ones_like(audio_features[:,:,0])
+        
+        if x_lens is not None:
+            audio_features_masks = (
+                torch.arange(audio_features.shape[1], device=audio_features.device).unsqueeze(0) < x_lens.unsqueeze(1)
+            ).long()
+        else:
+            audio_features_masks = torch.ones_like(audio_features[:,:,0]).long()        
+        
         semantic_repr, sim_repr = _extract_semantic_code(
             self.semantic_model,
             audio_features,
@@ -719,8 +729,17 @@ class FlexiCodec(nn.Module):
                     "sim": None if sim is None else sim
                 })
                 return return_dict
+
+            if x_lens_downsampled is not None:
+                T_bottleneck = acoustic_final.shape[-1]
+                bottleneck_mask = (
+                    torch.arange(T_bottleneck, device=acoustic_final.device).unsqueeze(0) < x_lens_downsampled.unsqueeze(1)
+                )
+            else:
+                bottleneck_mask = None
+
             # Decode to audio
-            acoustic_final = self.bottleneck_transformer(acoustic_final) # TODO match the shape of acoustic_final
+            acoustic_final = self.bottleneck_transformer(acoustic_final, padding_mask = bottleneck_mask) # TODO match the shape of acoustic_final
             audio_output = self.dac.decoder(acoustic_final)
             
             acoustic_edict = edict({

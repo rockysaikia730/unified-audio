@@ -135,14 +135,14 @@ class Codec(nn.Module):
             strides=(2, 1),
         )
     
-    def forward(self, x, feat, use_mask=False, domain_split=None):
+    def forward(self, x, feat, use_mask=False, domain_split=None, padding_mask=None):
         # [b,1,t]
         # cnn_feat, mask_indices, emb = self.encoder(x, use_mask=use_mask)
         # # quantized, codes, commit_loss = self.quantizer(emb, domain_split=domain_split)
         # quantized, codes, commit_loss = self.quantizer(emb)
         # recon = self.decoder(quantized)  # [b,t]
         # return recon, commit_loss.mean(), cnn_feat, mask_indices, quantized
-        emb = self.encoder(x)
+        emb = self.encoder(x, padding_mask=padding_mask)
         semantic_emb = self.semantic_encoder(feat)
         
         # quantized: b,t,d
@@ -164,9 +164,9 @@ class Codec(nn.Module):
 
 
     @torch.no_grad()
-    def encode(self, x, feat):
+    def encode(self, x, feat, padding_mask=None):
         # [b,1,t]
-        emb = self.encoder(x)
+        emb = self.encoder(x, padding_mask=padding_mask)
         semantic_emb = self.semantic_encoder(feat)
         _, acoustic_codes, _ = self.quantizer(emb.transpose(-2, -1))  # b,t,nq
         _, semantic_codes, _ = self.semantic_quantizer(semantic_emb.transpose(-2, -1))

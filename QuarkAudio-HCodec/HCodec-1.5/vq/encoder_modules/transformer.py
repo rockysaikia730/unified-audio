@@ -449,6 +449,7 @@ class Transformer(nn.Module):
     def forward(
         self,
         inputs_embeds: Optional[torch.FloatTensor],
+        padding_mask: Optional[torch.BoolTensor] = None,
         past_key_values: Optional[DynamicCache] = None,
         use_cache: Optional[bool] = None,
     ) -> Tuple[torch.FloatTensor]:
@@ -474,6 +475,15 @@ class Transformer(nn.Module):
                 mask = self.create_causal_mask(hidden_states.shape[1], hidden_states.device)
             mask = mask.unsqueeze(0).repeat(hidden_states.size(0), 1, 1)  # (B, T, T)
         
+        if padding_mask is not None:
+            pad_mask_2d = padding_mask.unsqueeze(1).expand(
+                hidden_states.size(0), hidden_states.size(1), hidden_states.size(1)
+            )
+            if mask is not None:
+                mask = mask & pad_mask_2d
+            else:
+                mask = pad_mask_2d
+
         for i, layer in enumerate(self.layers):
             hidden_states = layer(
                 hidden_states,
